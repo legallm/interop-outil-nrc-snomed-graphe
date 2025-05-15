@@ -1,6 +1,6 @@
 import pandas as pd
 import networkx as nx
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 from itertools import groupby
 from itertools import pairwise
 from typing import Any, Dict, Generator, List, Self, Set, Tuple
