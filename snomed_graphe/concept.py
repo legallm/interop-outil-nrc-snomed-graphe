@@ -1,17 +1,21 @@
-from typing import Any, Dict, List
+from typing import Any, List
 
 
 class ConceptDetails():
     """
     Une classe pour représenter les détails essentiels d'un concept SNOMED CT
     """
-    def __init__(self, sctid: int, fsn: str, syn: Dict[str, List[str]]) -> None:
+    def __init__(self, sctid: int, fsn: str, pt_en: str, pt_lang: str,
+                 syn_en: List[str], syn_lang: List[str]) -> None:
         self.sctid = sctid
         self.fsn = fsn
-        self.syn = syn
+        self.pt_en = pt_en
+        self.pt_lang = pt_lang
+        self.syn_en = syn_en
+        self.syn_lang = syn_lang
 
     def __repr__(self) -> str:
-        return f"{self.sctid} | {self.fsn}"
+        return f"{self.sctid} |{self.fsn}|"
 
     def __eq__(self, other) -> Any:
         return self.sctid == other.sctid
@@ -58,16 +62,18 @@ class Concept():
     """
     def __init__(self, concept_details: ConceptDetails, parents: List[ConceptDetails],
                  children: List[ConceptDetails],
-                 inferred_relationship_groups: List[RelationshipGroup], lang: str = "FR") -> None:
+                 inferred_relationship_groups: List[RelationshipGroup]) -> None:
         self.concept_details = concept_details
         self.inferred_relationship_groups = inferred_relationship_groups
         self.parents = parents
         self.children = children
-        self.lang = lang
 
     def __repr__(self) -> str:
         str_ = str(self.concept_details)
-        str_ += f"\n\nSynonymes :\n{self.concept_details.syn}"
+        str_ += f"\n\nPT anglais :\n{self.concept_details.pt_en}"
+        str_ += f"\n\nPT non anglais :\n{self.concept_details.pt_lang}"
+        str_ += f"\n\nSYN anglais:\n{self.concept_details.syn_en}"
+        str_ += f"\n\nSYN non anglais:\n{self.concept_details.syn_lang}"
         str_ += "\n\nParents :\n"
         str_ += "\n".join([str(p) for p in self.parents])
         str_ += "\n\nEnfants :\n"
@@ -83,6 +89,14 @@ class Concept():
     @property
     def fsn(self) -> str:
         return self.concept_details.fsn
+
+    @property
+    def pt_en(self) -> str:
+        return self.concept_details.pt_en
+
+    @property
+    def pt_lang(self) -> str:
+        return self.concept_details.pt_lang
 
     @property
     def syn_en(self) -> List[str]:

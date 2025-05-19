@@ -333,7 +333,8 @@ class Graphe():
             lang: Autre langue que l'anglais présente dans la release, par défaut 'fr'.
 
         Returns:
-            Un Tuple contenant les fichiers de concepts, descriptions et relations.
+            Un Tuple contenant les fichiers de concepts, descriptions, relations et refset
+            de langue.
         """
         # Normaliser le chemin de l'archive RF2
         path = op.abspath(path)
@@ -356,6 +357,7 @@ class Graphe():
             raise AssertionError(f"Le dossier '{path}' ne suit pas les convention de nommage RF2.")
 
         termino_path = op.join(path, "Snapshot/Terminology")
+        lang_path = op.join(path, "Snapshot/Refset/Language")
 
         # Création et vérification de l'existence du fichier des concepts
         concepts_path = op.join(termino_path,
@@ -363,26 +365,35 @@ class Graphe():
         if not op.exists(concepts_path):
             raise AssertionError(f"Le chemin '{concepts_path}' n'existe pas")
 
+        # Création et vérification de l'existence du fichier des descriptions anglaises
+        en_desc_path = op.join(termino_path,
+                               f"sct2_Description_Snapshot-en_{ns}_{date}.txt")
+        if not op.exists(en_desc_path):
+            raise AssertionError(f"Le chemin '{en_desc_path}' n'existe pas")
         if lang:
-            # Création et vérification de l'existence du fichier des descriptions anglaises
-            en_desc_path = op.join(termino_path,
-                                   f"sct2_Description_Snapshot-en_{ns}_{date}.txt")
-            if not op.exists(en_desc_path):
-                raise AssertionError(f"Le chemin '{en_desc_path}' n'existe pas")
-
             # Création et vérification de l'existence du fichier des descriptions non anglaises
             lang_desc_path = op.join(termino_path,
                                      f"sct2_Description_Snapshot-{lang}_{ns}_{date}.txt")
             if not op.exists(lang_desc_path):
                 raise AssertionError(f"Le chemin '{lang_desc_path}' n'existe pas")
         else:
-            # Création et vérification de l'existence du fichier des descriptions anglaises
-            en_desc_path = op.join(termino_path,
-                                   f"sct2_Description_Snapshot_{ns}_{date}.txt")
-            if not op.exists(en_desc_path):
-                raise AssertionError(f"Le chemin '{en_desc_path}' n'existe pas")
             # Pas de description non anglaise
             lang_desc_path = ""
+
+        # Création et vérification de l'existence du refset de langue anglaise
+        en_accept_path = op.join(lang_path,
+                                 f"der2_cRefset_LanguageSnapshot-en_{ns}_{date}.txt")
+        if not op.exists(en_accept_path):
+            raise AssertionError(f"Le chemin '{en_accept_path}' n'existe pas")
+        if lang:
+            # Création et vérification de l'existence du refset de langue non anglaise
+            lang_accept_path = op.join(lang_path,
+                                       f"der2_cRefset_LanguageSnapshot-{lang}_{ns}_{date}.txt")
+            if not op.exists(lang_accept_path):
+                raise AssertionError(f"Le chemin '{lang_accept_path}' n'existe pas")
+        else:
+            # Pas de refset de langue non anglaise
+            lang_accept_path = ""
 
         # Création et vérification de l'existence du fichier des relations
         relationships_path = op.join(termino_path,
@@ -390,7 +401,8 @@ class Graphe():
         if not op.exists(relationships_path):
             raise AssertionError(f"Le chemin '{relationships_path}' n'existe pas")
 
-        return concepts_path, en_desc_path, lang_desc_path, relationships_path
+        return (concepts_path, en_desc_path, lang_desc_path, en_accept_path, lang_accept_path,
+                relationships_path)
 
     @staticmethod
     def from_rf2(path: str, lang: str = "fr") -> Self:
@@ -404,33 +416,70 @@ class Graphe():
         Returns:
             Un objet Graphe.
         """
-        c_path, en_desc_path, lang_desc_path, rs_path = Graphe.get_core_file_paths(path)
+        (c_path, en_desc_path, lang_desc_path, en_accept_path, lang_accept_path,
+         rs_path) = Graphe.get_core_file_paths(path)
 
         # Charge les concepts
         print("Lecture du fichier des concepts ...")
-        concept = pd.read_csv(c_path, sep="\t", dtype=str, usecols=["id", "active"])
-        concept = concept.loc[concept.loc[:, "active"] == "1"]
+        concepts = pd.read_csv(c_path, sep="\t", dtype=str, usecols=["id", "active"])
+        concepts = concepts.loc[concepts.loc[:, "active"] == "1"]
 
         # Charge les descriptions
-        print("Lecture du ou des fichier(s) des descriptions...")
+        print("Lecture du fichier des descriptions anglaises...")
         desc = pd.read_csv(en_desc_path, dtype=str, quoting=3, encoding="UTF-8",
-                           sep="\t", usecols=["active", "conceptId", "languageCode",
+                           sep="\t", usecols=["id", "active", "conceptId", "languageCode",
                                               "typeId", "term"])
         if lang:
+            print("Lecture du fichier des descriptions non anglaises...")
             desc = pd.concat([
                 desc,
                 pd.read_csv(lang_desc_path, sep="\t", dtype=str, quoting=3, encoding="UTF-8",
-                            usecols=["active", "conceptId", "languageCode", "typeId", "term"])
+                            usecols=["id", "active", "conceptId", "languageCode", "typeId",
+                                     "term"])
             ])
-
         desc = desc.loc[desc.loc[:, "active"] == "1"]
         # Supprime les descriptions actives de concepts inactifs
-        desc = desc.loc[desc.loc[:, "conceptId"].isin(concept.loc[:, "id"])]
-        # Division par langue
-        syn_en = desc.loc[(desc.loc[:, "typeId"] != "900000000000003001")
+        desc = desc.loc[desc.loc[:, "conceptId"].isin(concepts.loc[:, "id"])]
+        del concepts
+
+        # Charge les refsets de langue
+        print("Lecture du fichier du refset de langue anglaise...")
+        accept = pd.read_csv(en_accept_path, dtype=str, sep="\t",
+                             usecols=["active", "refsetId", "referencedComponentId",
+                                      "acceptabilityId"])
+        if lang:
+            print("Lecture du fichier du refset de langue non anglaise...")
+            accept = pd.concat([
+                accept,
+                pd.read_csv(lang_accept_path, sep="\t", dtype=str,
+                            usecols=["active", "refsetId", "referencedComponentId",
+                                     "acceptabilityId"])
+            ])
+        accept = accept.loc[accept.loc[:, "active"] == "1"]
+        # Supprimer les PT en anglais britannique
+        accept = accept.loc[(accept.loc[:, "refsetId"] != "900000000000508004")
+                            | (accept.loc[:, "acceptabilityId"] != "900000000000548007")]
+
+        # Ajouter l'acceptabilité aux descriptions
+        desc = desc.merge(accept, how="left", left_on="id", right_on="referencedComponentId")
+        del accept
+        # Suppression des doublons entre anglais US & UK
+        desc.drop(["id", "active_x", "active_y", "refsetId", "referencedComponentId"], axis=1,
+                  inplace=True)
+        desc.drop_duplicates(inplace=True)
+
+        # Division par langue et acceptabilité
+        pt_en = desc.loc[(desc.loc[:, "typeId"] != "900000000000003001")
+                         & (desc.loc[:, "acceptabilityId"] == "900000000000548007")
+                         & (desc.loc[:, "languageCode"] == "en")]
+        syn_en = desc.loc[(desc.loc[:, "acceptabilityId"] == "900000000000549004")
                           & (desc.loc[:, "languageCode"] == "en")]
-        syn_lang = desc.loc[(desc.loc[:, "typeId"] != "900000000000003001")
-                            & (desc.loc[:, "languageCode"] == lang)]
+        if lang:
+            pt_lang = desc.loc[(desc.loc[:, "typeId"] != "900000000000003001")
+                               & (desc.loc[:, "acceptabilityId"] == "900000000000548007")
+                               & (desc.loc[:, "languageCode"] == lang)]
+            syn_lang = desc.loc[(desc.loc[:, "acceptabilityId"] == "900000000000549004")
+                                & (desc.loc[:, "languageCode"] == lang)]
 
         # Charge les relations
         print("Lecture du fichier des relations...")
@@ -440,8 +489,7 @@ class Graphe():
         relations = relations.loc[relations.loc[:, "active"] == "1"]
 
         # Crée l'index des attributs
-        attributs = desc.loc[desc.loc[:, "conceptId"].isin(relations.loc[:, "typeId"].unique())]
-        attributs = attributs.loc[attributs.loc[:, "typeId"] == "900000000000003001"]
+        attributs = pt_en.loc[pt_en.loc[:, "conceptId"].isin(relations.loc[:, "typeId"].unique())]
         attributs.set_index("conceptId", inplace=True)
         attributs = attributs.loc[:, "term"].to_dict()
 
@@ -449,10 +497,20 @@ class Graphe():
         nodes = desc.loc[(desc.loc[:, "typeId"] == "900000000000003001")
                          & (desc.loc[:, "languageCode"] == "en"), ["conceptId", "term"]]
         nodes.set_index("conceptId", inplace=True)
+        # Ajout colonnes PT
+        nodes = pd.concat([nodes, pt_en.groupby("conceptId")["term"].apply(list)], axis=1)
+        if lang:
+            nodes = pd.concat([nodes, pt_lang.groupby("conceptId")["term"].apply(list)], axis=1)
+        # Ajout colonnes SYN
         nodes = pd.concat([nodes, syn_en.groupby("conceptId")["term"].apply(list)], axis=1)
-        nodes = pd.concat([nodes, syn_lang.groupby("conceptId")["term"].apply(list)], axis=1)
-        nodes.reset_index(inplace=True, col_level=0)
-        nodes.columns = ["node_id", "fsn", "syn_en", "syn_fr"]
+        if lang:
+            nodes = pd.concat([nodes, syn_lang.groupby("conceptId")["term"].apply(list)], axis=1)
+        # Normalisation du DataFrame
+        nodes.fillna("", inplace=True)
+        nodes.columns = ["fsn", "pt_en", "pt_lang", "syn_en", "syn_lang"]
+        nodes.loc[:, "pt_en"] = ["".join(map(str, col)) for col in nodes.loc[:, "pt_en"]]
+        nodes.loc[:, "pt_lang"] = ["".join(map(str, col)) for col in nodes.loc[:, "pt_lang"]]
+        del desc
 
         # Initialisation du graphe
         print(f"Lecture de {len(nodes)} concepts et {len(relations)} relations du RF2.")
