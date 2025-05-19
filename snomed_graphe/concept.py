@@ -1,15 +1,14 @@
-import re
-from typing import Any, List
+from typing import Any, Dict, List
 
 
 class ConceptDetails():
     """
     Une classe pour représenter les détails essentiels d'un concept SNOMED CT
     """
-    def __init__(self, sctid: int, fsn: str, synonyms: List[str] = None) -> None:
+    def __init__(self, sctid: int, fsn: str, syn: Dict[str, List[str]]) -> None:
         self.sctid = sctid
         self.fsn = fsn
-        self.synonyms = synonyms
+        self.syn = syn
 
     def __repr__(self) -> str:
         return f"{self.sctid} | {self.fsn}"
@@ -21,12 +20,8 @@ class ConceptDetails():
         return int(self.sctid)
 
     @property
-    def hierarchy(self) -> str:
-        hierarchy_match = re.search(r'\(([^)]+)\)\s*$', self.fsn)
-        if hierarchy_match:
-            return hierarchy_match[0][1:-1]
-        else:
-            return ""
+    def semtag(self) -> str:
+        return self.fsn.split(" (")[-1].rstrip(")")
 
 
 class Relationship():
@@ -61,20 +56,23 @@ class Concept():
     """
     Une classe pour représenter un concept SNOMED CT.
     """
-    def __init__(self, concept_details, parents, children, inferred_relationship_groups) -> None:
+    def __init__(self, concept_details: ConceptDetails, parents: List[ConceptDetails],
+                 children: List[ConceptDetails],
+                 inferred_relationship_groups: List[RelationshipGroup], lang: str = "FR") -> None:
         self.concept_details = concept_details
         self.inferred_relationship_groups = inferred_relationship_groups
         self.parents = parents
         self.children = children
+        self.lang = lang
 
     def __repr__(self) -> str:
         str_ = str(self.concept_details)
-        str_ += f"\n\nSynonyms:\n{self.concept_details.synonyms}"
-        str_ += "\n\nParents:\n"
+        str_ += f"\n\nSynonymes :\n{self.concept_details.syn}"
+        str_ += "\n\nParents :\n"
         str_ += "\n".join([str(p) for p in self.parents])
-        str_ += "\n\nChildren:\n"
+        str_ += "\n\nEnfants :\n"
         str_ += "\n".join([str(c) for c in self.children])
-        str_ += "\n\nInferred Relationships:\n"
+        str_ += "\n\nRelations :\n"
         str_ += "\n".join([str(rg) for rg in self.inferred_relationship_groups])
         return str_
 
@@ -87,9 +85,13 @@ class Concept():
         return self.concept_details.fsn
 
     @property
-    def synonyms(self) -> List[str]:
-        return self.concept_details.synonyms
+    def syn_en(self) -> List[str]:
+        return self.concept_details.syn_en
 
     @property
-    def hierarchy(self) -> str:
-        return self.concept_details.hierarchy
+    def syn_lang(self) -> List[str]:
+        return self.concept_details.syn_lang
+
+    @property
+    def semtag(self) -> str:
+        return self.concept_details.semtag

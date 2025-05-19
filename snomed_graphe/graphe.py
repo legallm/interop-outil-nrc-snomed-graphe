@@ -4,7 +4,7 @@ from tqdm import tqdm
 from itertools import groupby
 from itertools import pairwise
 from typing import Any, Dict, Generator, List, Self, Set, Tuple
-import os
+import os.path as op
 from datetime import datetime
 from snomed_graphe import concept as sct
 
@@ -12,25 +12,17 @@ from snomed_graphe import concept as sct
 class Graphe():
     """
     Une classe pour représenter une release SNOMED CT sous forme de graphe via NetworkX.
-
-    Attributes
-    ----------
-    g : nx.DiGraph
-        Graphe de données
     """
-    fsn_typeId = 900000000000003001
-    is_a_relationship_typeId = 116680003
-    root_concept_id = 138875005
-    default_langcode = "en"
-
-    def __init__(self, g: nx.DiGraph) -> None:
+    def __init__(self, g: nx.DiGraph, root: str = "138875005") -> None:
         """
         Crée une nouvelle instance de Graphe via un objet NetworkX DiGraph
 
         Args:
             g: Un DiGraph créé par Graphe.from_rf2() ou Graphe.from_serialized().
+            root: SCTID du concept racine du Graphe
         """
         self.g = g
+        self.root = root
         print(self)
 
     def __repr__(self) -> str:
@@ -49,13 +41,13 @@ class Graphe():
     def get_children(self, sctid: int) -> List[sct.ConceptDetails]:
         return [
             r.src for r in self.__get_in_relationships(sctid)
-            if r.type_id == Graphe.is_a_relationship_typeId
+            if r.type_id == "116680003"
         ]
 
     def get_parents(self, sctid: int) -> List[sct.ConceptDetails]:
         return [
             r.tgt for r in self.__get_out_relationships(sctid)
-            if r.type_id == Graphe.is_a_relationship_typeId
+            if r.type_id == "116680003"
         ]
 
     def get_inferred_relationships(self, sctid: int) -> List[sct.RelationshipGroup]:
@@ -72,7 +64,7 @@ class Graphe():
         """
         inferred_relationships = [
             r for r in self.__get_out_relationships(sctid)
-            if r.type_id != Graphe.is_a_relationship_typeId
+            if r.type_id != "116680003"
         ]
         key_ = lambda r: r.group
         inferred_relationships_grouped = groupby(
@@ -177,7 +169,7 @@ class Graphe():
                 ancestors = ancestors.union(
                     self.get_ancestors(p.sctid, steps_removed - 1)
                 )
-        return set([a for a in ancestors if not a.sctid == Graphe.root_concept_id])
+        return set([a for a in ancestors if not a.sctid == self.root])
 
     def get_neighbourhood(self, sctid: int, steps_removed: int = 1) -> List[sct.ConceptDetails]:
         """
@@ -203,7 +195,7 @@ class Graphe():
                 )
         neighbourhood = [
             n for n in neighbourhood
-            if n.sctid not in [sctid, Graphe.root_concept_id]
+            if n.sctid not in [sctid, self.root]
         ]
         return neighbourhood
 
@@ -259,7 +251,7 @@ class Graphe():
             Ce sont les étapes du plus court chemin du concept à la racine.
         """
         shortest_path = None
-        for nodes in nx.all_simple_paths(self.g, sctid, self.root_concept_id):
+        for nodes in nx.all_simple_paths(self.g, sctid, self.root):
             path = list()
             for src_sctid, tgt_sctid in pairwise(nodes):
                 vals = self.g.edges[(src_sctid, tgt_sctid)]
@@ -332,91 +324,154 @@ class Graphe():
         return Graphe(g)
 
     @staticmethod
-    def get_core_file_paths(path: str, langcode: str = "en") -> Tuple[str]:
-        if not os.path.exists(path):
-            raise AssertionError(f'The path "{path}" does not exist')
-        base_dir = os.path.dirname(path)
-        dir = os.path.basename(path)
+    def get_core_file_paths(path: str, lang: str = "fr") -> Tuple[str]:
+        """
+        Génère les chemins vers les fichiers d'intérêts au sein d'une archive RF2.
+
+        Args:
+            path: Chemin vers l'archive RF2.
+            lang: Autre langue que l'anglais présente dans la release, par défaut 'fr'.
+
+        Returns:
+            Un Tuple contenant les fichiers de concepts, descriptions et relations.
+        """
+        # Normaliser le chemin de l'archive RF2
+        path = op.abspath(path)
+        # Vérification de l'existance du dossier
+        if not op.exists(path):
+            raise AssertionError(f"Le chemin '{path}' n'existe pas")
+
         try:
-            elements = dir.split("_")
-            assert len(elements) in [4, 5]
+            # Récupération des différents éléments à partir du nom du dossier
+            elements = path.split("_")
             if len(elements) == 5:
-                filetype, contenttype, contentsubtype, countrynamespace, versiondate = elements
+                _, _, _, ns, date = elements
+            elif len(elements) == 4:
+                _, _, _, date = elements
+                ns = "INT"
             else:
-                filetype, contenttype, contentsubtype, versiondate = elements
-                countrynamespace = "INT"
-            versiondate = datetime.strptime(versiondate, "%Y%m%dT%H%M%SZ").strftime("%Y%m%d")
+                raise AttributeError
+            date = datetime.strptime(date, "%Y%m%dT%H%M%SZ").strftime("%Y%m%d")
         except (AttributeError, ValueError, AssertionError):
-            raise AssertionError(
-                f'Le dossier "{dir}" ne semble pas suivre la convention de nommage RF2.'
-            )
+            raise AssertionError(f"Le dossier '{path}' ne suit pas les convention de nommage RF2.")
+
+        termino_path = op.join(path, "Snapshot/Terminology")
+
+        # Création et vérification de l'existence du fichier des concepts
+        concepts_path = op.join(termino_path,
+                                f"sct2_Concept_Snapshot_{ns}_{date}.txt")
+        if not op.exists(concepts_path):
+            raise AssertionError(f"Le chemin '{concepts_path}' n'existe pas")
+
+        if lang:
+            # Création et vérification de l'existence du fichier des descriptions anglaises
+            en_desc_path = op.join(termino_path,
+                                   f"sct2_Description_Snapshot-en_{ns}_{date}.txt")
+            if not op.exists(en_desc_path):
+                raise AssertionError(f"Le chemin '{en_desc_path}' n'existe pas")
+
+            # Création et vérification de l'existence du fichier des descriptions non anglaises
+            lang_desc_path = op.join(termino_path,
+                                     f"sct2_Description_Snapshot-{lang}_{ns}_{date}.txt")
+            if not op.exists(lang_desc_path):
+                raise AssertionError(f"Le chemin '{lang_desc_path}' n'existe pas")
         else:
-            relationships_path = f"{base_dir}/{dir}/Snapshot/Terminology/sct2_Relationship_Snapshot_{countrynamespace}_{versiondate}.txt"
-            if not os.path.exists(relationships_path):
-                raise AssertionError(f'The path "{relationships_path}" does not exist')
-            descriptions_path = f"{base_dir}/{dir}/Snapshot/Terminology/sct2_Description_Snapshot-{langcode}_{countrynamespace}_{versiondate}.txt"
-            if not os.path.exists(descriptions_path):
-                raise AssertionError(f'The path "{descriptions_path}" does not exist')
-        return relationships_path, descriptions_path
+            # Création et vérification de l'existence du fichier des descriptions anglaises
+            en_desc_path = op.join(termino_path,
+                                   f"sct2_Description_Snapshot_{ns}_{date}.txt")
+            if not op.exists(en_desc_path):
+                raise AssertionError(f"Le chemin '{en_desc_path}' n'existe pas")
+            # Pas de description non anglaise
+            lang_desc_path = ""
+
+        # Création et vérification de l'existence du fichier des relations
+        relationships_path = op.join(termino_path,
+                                     f"sct2_Relationship_Snapshot_{ns}_{date}.txt")
+        if not op.exists(relationships_path):
+            raise AssertionError(f"Le chemin '{relationships_path}' n'existe pas")
+
+        return concepts_path, en_desc_path, lang_desc_path, relationships_path
 
     @staticmethod
-    def from_rf2(path: str) -> Self:
+    def from_rf2(path: str, lang: str = "fr") -> Self:
         """
         Crée un Graphe depuis une archive RF2.
 
         Args:
             path: Chemin vers l'archive RF2.
+            lang: Autre langue que l'anglais présente dans la release, par défaut 'fr'.
 
         Returns:
             Un objet Graphe.
         """
-        relationships_path, descriptions_path = Graphe.get_core_file_paths(path)
-
-        # Charge les relations
-        relationships_df = pd.read_csv(relationships_path, delimiter="\t")
-        relationships_df = relationships_df[relationships_df.active == 1]
+        c_path, en_desc_path, lang_desc_path, rs_path = Graphe.get_core_file_paths(path)
 
         # Charge les concepts
-        concepts_df = pd.read_csv(descriptions_path, delimiter="\t")
-        concepts_df = concepts_df[concepts_df.active == 1]
-        concepts_df.set_index("conceptId", inplace=True)
+        print("Lecture du fichier des concepts ...")
+        concept = pd.read_csv(c_path, sep="\t", dtype=str, usecols=["id", "active"])
+        concept = concept.loc[concept.loc[:, "active"] == "1"]
+
+        # Charge les descriptions
+        print("Lecture du ou des fichier(s) des descriptions...")
+        desc = pd.read_csv(en_desc_path, dtype=str, quoting=3, encoding="UTF-8",
+                           sep="\t", usecols=["active", "conceptId", "languageCode",
+                                              "typeId", "term"])
+        if lang:
+            desc = pd.concat([
+                desc,
+                pd.read_csv(lang_desc_path, sep="\t", dtype=str, quoting=3, encoding="UTF-8",
+                            usecols=["active", "conceptId", "languageCode", "typeId", "term"])
+            ])
+
+        desc = desc.loc[desc.loc[:, "active"] == "1"]
+        # Supprime les descriptions actives de concepts inactifs
+        desc = desc.loc[desc.loc[:, "conceptId"].isin(concept.loc[:, "id"])]
+        # Division par langue
+        syn_en = desc.loc[(desc.loc[:, "typeId"] != "900000000000003001")
+                          & (desc.loc[:, "languageCode"] == "en")]
+        syn_lang = desc.loc[(desc.loc[:, "typeId"] != "900000000000003001")
+                            & (desc.loc[:, "languageCode"] == lang)]
+
+        # Charge les relations
+        print("Lecture du fichier des relations...")
+        relations = pd.read_csv(rs_path, sep="\t", dtype=str,
+                                usecols=["active", "sourceId", "destinationId",
+                                         "relationshipGroup", "typeId"])
+        relations = relations.loc[relations.loc[:, "active"] == "1"]
 
         # Crée l'index des attributs
-        relationship_types = concepts_df.loc[relationships_df.typeId.unique()]
-        relationship_types = relationship_types[relationship_types.typeId == Graphe.fsn_typeId]
-        relationship_types = relationship_types.term.to_dict()
+        attributs = desc.loc[desc.loc[:, "conceptId"].isin(relations.loc[:, "typeId"].unique())]
+        attributs = attributs.loc[attributs.loc[:, "typeId"] == "900000000000003001"]
+        attributs.set_index("conceptId", inplace=True)
+        attributs = attributs.loc[:, "term"].to_dict()
 
-        # Initialise le graphe
-        n_concepts = concepts_df.shape[0]
-        n_relationships = relationships_df.shape[0]
-        print(f"{n_concepts} concepts et {n_relationships} relations extraite du RF2.")
+        # Création du DataFrame des nœuds
+        nodes = desc.loc[(desc.loc[:, "typeId"] == "900000000000003001")
+                         & (desc.loc[:, "languageCode"] == "en"), ["conceptId", "term"]]
+        nodes.set_index("conceptId", inplace=True)
+        nodes = pd.concat([nodes, syn_en.groupby("conceptId")["term"].apply(list)], axis=1)
+        nodes = pd.concat([nodes, syn_lang.groupby("conceptId")["term"].apply(list)], axis=1)
+        nodes.reset_index(inplace=True, col_level=0)
+        nodes.columns = ["node_id", "fsn", "syn_en", "syn_fr"]
+
+        # Initialisation du graphe
+        print(f"Lecture de {len(nodes)} concepts et {len(relations)} relations du RF2.")
         g = nx.DiGraph()
 
+        # Création des nœuds
+        print("\nCréation des concepts...")
+        g.add_nodes_from((id, dict(row)) for id, row in tqdm(nodes.iterrows(), total=len(nodes)))
+
         # Crée les relations
-        print("Création des Relations...")
-        for r in tqdm(relationships_df.to_dict(orient="records")):
+        print("Création des relations...")
+        for r in tqdm(relations.to_dict(orient="records")):
             g.add_edge(
                 r["sourceId"],
                 r["destinationId"],
                 group=r["relationshipGroup"],
-                type=relationship_types[r["typeId"]],
+                type=attributs[r["typeId"]],
                 type_id=r["typeId"]
             )
 
-        # Ajout des concepts
-        print("Ajout des Concepts...")
-        for sctid, rows in tqdm(concepts_df.groupby(concepts_df.index)):
-            synonyms = [row.term for _, row in rows.iterrows() if row.typeId != Graphe.fsn_typeId]
-            try:
-                fsn = rows[rows.typeId == Graphe.fsn_typeId].term.values[0]
-            except IndexError:
-                fsn = synonyms[0]
-                synonyms = synonyms[1:]
-                print(f"Concept with SCTID {sctid} has no FSN. Using synonym '{fsn}' instead.")
-            g.add_node(sctid, fsn=fsn, synonyms=synonyms)
-
-        # Suppression des nœuds isolés
-        g.remove_nodes_from(list(nx.isolates(g)))
-
-        # Initialise la classe
+        # Retourne le graphe complet
         return Graphe(g)
