@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, Dict, List, Union
 
 
 class ConceptDetails():
@@ -32,28 +32,15 @@ class Relationship():
     """
     Une classe pour représenter une relation SNOMED CT
     """
-    def __init__(self, src: ConceptDetails, tgt: ConceptDetails, group: int,
-                 type: str, type_id: str) -> None:
+    def __init__(self, src: ConceptDetails, tgt: Union[int, ConceptDetails], group: str,
+                 attribute: ConceptDetails) -> None:
         self.src = src
         self.tgt = tgt
         self.group = group
-        self.type = type
-        self.type_id = type_id
+        self.attribute = attribute
 
     def __repr__(self) -> str:
-        return f"[{self.src}] ---[{self.type}]---> [{self.tgt}]"
-
-
-class RelationshipGroup():
-    """
-    Une classe pour représenter un groupe relationnel SNOMED CT
-    """
-    def __init__(self, group: int, relationships: List[Relationship]) -> None:
-        self.group = group
-        self.relationships = relationships
-
-    def __repr__(self) -> str:
-        return f"Group {self.group}\n\t" + "\n\t".join([str(r) for r in self.relationships])
+        return f"--{self.attribute}--> {self.tgt}"
 
 
 class Concept():
@@ -62,24 +49,25 @@ class Concept():
     """
     def __init__(self, concept_details: ConceptDetails, parents: List[ConceptDetails],
                  children: List[ConceptDetails],
-                 inferred_relationship_groups: List[RelationshipGroup]) -> None:
+                 relationships: Dict[int, List[Relationship]], lang: str = "fr") -> None:
         self.concept_details = concept_details
-        self.inferred_relationship_groups = inferred_relationship_groups
+        self.relationships = relationships
         self.parents = parents
         self.children = children
+        self.lang = lang
 
     def __repr__(self) -> str:
         str_ = str(self.concept_details)
-        str_ += f"\n\nPT anglais :\n{self.concept_details.pt_en}"
-        str_ += f"\n\nPT non anglais :\n{self.concept_details.pt_lang}"
-        str_ += f"\n\nSYN anglais:\n{self.concept_details.syn_en}"
-        str_ += f"\n\nSYN non anglais:\n{self.concept_details.syn_lang}"
+        str_ += f"\n\nPT en :\n{self.concept_details.pt_en}"
+        str_ += f"\n\nPT {self.lang} :\n{self.concept_details.pt_lang}"
+        str_ += f"\n\nSYN en:\n{self.concept_details.syn_en}"
+        str_ += f"\n\nSYN {self.lang} :\n{self.concept_details.syn_lang}"
         str_ += "\n\nParents :\n"
         str_ += "\n".join([str(p) for p in self.parents])
         str_ += "\n\nEnfants :\n"
         str_ += "\n".join([str(c) for c in self.children])
         str_ += "\n\nRelations :\n"
-        str_ += "\n".join([str(rg) for rg in self.inferred_relationship_groups])
+        str_ += "\n".join(f"{k}:\n   {v}\n" for k, v in self.relationships.items())
         return str_
 
     @property

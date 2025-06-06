@@ -1,88 +1,110 @@
-import pandas as pd
 import networkx as nx
-from tqdm import tqdm
-from itertools import groupby
-from itertools import pairwise
-from typing import Any, Dict, Generator, List, Self, Set, Tuple
-import os.path as op
-from datetime import datetime
-from snomed_graphe import concept as sct
+import pandas as pd
+import snomed_graphe.component as sct
+
+from collections import defaultdict
+from typing import Any, Dict, Generator, List, Self, Tuple
 
 
-class Graphe():
+class SnomedGraph():
     """
     Une classe pour représenter une release SNOMED CT sous forme de graphe via NetworkX.
     """
-    def __init__(self, g: nx.DiGraph, root: str = "138875005") -> None:
+    def __init__(self, g: nx.DiGraph, lang: str = "fr", root: str = "138875005") -> None:
         """
         Crée une nouvelle instance de Graphe via un objet NetworkX DiGraph
 
         Args:
             g: Un DiGraph créé par Graphe.from_rf2() ou Graphe.from_serialized().
-            root: SCTID du concept racine du Graphe
+            lang: Langue autre que l'anglais utilisée dans le graphe.
+            root: SCTID du concept racine du Graphe.
         """
         self.g = g
+        self.undir = nx.to_undirected(self.g)
+        self.lang = lang
         self.root = root
         print(self)
-
-    def __repr__(self) -> str:
-        return f"{self.g.number_of_nodes()} concepts et {self.g.number_of_edges()} relations."
-
-    def __iter__(self) -> Generator[Any, Any, None]:
-        for sctid in self.g.nodes:
-            yield self.get_concept_details(sctid)
-
-    def __len__(self) -> int:
-        return self.g.number_of_nodes()
 
     def __contains__(self, item) -> bool:
         return item in self.g
 
-    def get_children(self, sctid: int) -> List[sct.ConceptDetails]:
-        return [
-            r.src for r in self.__get_in_relationships(sctid)
-            if r.type_id == "116680003"
-        ]
+    def __iter__(self) -> Generator[Any, Any, None]:
+        for sctid in self.g.nodes:
+            yield self.g.nodes[sctid]
 
-    def get_parents(self, sctid: int) -> List[sct.ConceptDetails]:
-        return [
-            r.tgt for r in self.__get_out_relationships(sctid)
-            if r.type_id == "116680003"
-        ]
+    def __len__(self) -> int:
+        return self.g.number_of_nodes()
 
-    def get_inferred_relationships(self, sctid: int) -> List[sct.RelationshipGroup]:
-        """
-        Récupère les relations inferées d'un concept.
-        (N.B. cela exclut les relations "is a" qui peuvent être récupérées par la
-        fonction get_parents().)
+    def __repr__(self) -> str:
+        return f"{self.g.number_of_nodes()} concepts et {self.g.number_of_edges()} relations."
+
+    #####################
+    # Méthodes internes #
+    #####################
+    def _in_relationships(self, sctid: str) -> Generator[Dict, None, None]:
+        """Retourne les relations pointant vers le concept `sctid`.
 
         Args:
-            sctid: Un identifiant de concept SNOMED CT.
+            sctid: Identifiant valide d'un concept SNOMED CT.
+
+        Returns
+            Générateur des relations pointant vers le concept.
+        """
+        t = self.get_concept_details(sctid)
+        return (
+            sct.Relationship(
+                self.get_concept_details(s),
+                t,
+                self.g.edges[(s, sctid)]["group"],
+                self.get_concept_details(a)
+            )
+            for s, _, a in self.g.in_edges(sctid, data="attribute")
+        )
+
+    def _out_relationships(self, sctid: str) -> Generator[Dict, None, None]:
+        """Retourne les relations partant du concept `sctid`.
+
+        Args:
+            sctid: Identifiant valide d'un concept SNOMED CT.
+
+        Returns
+            Générateur des relations partant du concept.
+        """
+        s = self.get_concept_details(sctid)
+        return (
+            sct.Relationship(
+                s,
+                self.get_concept_details(t),
+                self.g.edges[(sctid, t)]["group"],
+                self.get_concept_details(a)
+            )
+            for _, t, a in self.g.out_edges(sctid, data="attribute")
+        )
+
+    #############
+    # Propriété #_out
+    #############
+    @property
+    def attributes(self) -> List[sct.ConceptDetails]:
+        """
+        Retourne tous les attributs utilisés dans le graphe.
 
         Returns:
-            Une liste d'objets RelationshipGroup.
+            Une liste contenant les attributs uniques utilisés dans le graphe.
         """
-        inferred_relationships = [
-            r for r in self.__get_out_relationships(sctid)
-            if r.type_id != "116680003"
-        ]
-        key_ = lambda r: r.group
-        inferred_relationships_grouped = groupby(
-            sorted(inferred_relationships, key=key_),
-            key=key_
-        )
-        inferred_relationship_groups = [
-            sct.RelationshipGroup(g, list(r))
-            for g, r in inferred_relationships_grouped
-        ]
-        return inferred_relationship_groups
+        return [self.get_concept_details(a)
+                for a in set(nx.get_edge_attributes(self.g, "type").values())]
 
+    ###########################################
+    # Méthodes d'accès aux éléments du graphe #
+    ###########################################
     def get_concept_details(self, sctid: int) -> sct.ConceptDetails:
         """
-        Récupère les détails essentiels d'un concept : SCTID, FSN et synonymes.
+        Renvoie les détails essentiels d'un concept : SCTID, FSN, PT et synonymes
+        acceptables (SYN).
 
         Args:
-            sctid: Un identifiant de concept SNOMED CT valide.
+            sctid: Identifiant valide d'un concept SNOMED CT.
 
         Returns:
             Un objet ConceptDetails.
@@ -91,206 +113,191 @@ class Graphe():
 
     def get_full_concept(self, sctid: int) -> sct.Concept:
         """
-        Récupère tous les détails d'un concept.
+        Renvoie tous les détails d'un concept : SCTID, FSN, PT, synonymes,
+        parents, enfants et relations non hiérarchiques.
 
         Args:
-            sctid: Un identifiant de concept SNOMED CT valide.
+            sctid: Identifiant valide d'un concept SNOMED CT.
 
         Returns:
             Un objet Concept.
         """
-        concept_details = self.get_concept_details(sctid)
-        parents = self.get_parents(sctid)
-        children = self.get_children(sctid)
-        inferred_relationship_groups = self.get_inferred_relationships(sctid)
-        return sct.Concept(concept_details, parents, children, inferred_relationship_groups)
+        return sct.Concept(
+            self.get_concept_details(sctid),
+            self.get_parents(sctid),
+            self.get_children(sctid),
+            self.get_grouped_relationships(sctid),
+            self.lang
+        )
 
-    def __get_out_relationships(self, src_sctid: int) -> Generator[Dict, None, None]:
-        src = sct.ConceptDetails(sctid=src_sctid, **self.g.nodes[src_sctid])
-        for _, tgt_sctid in self.g.out_edges(src_sctid):
-            tgt = sct.ConceptDetails(sctid=tgt_sctid, **self.g.nodes[tgt_sctid])
-            vals = self.g.edges[(src_sctid, tgt_sctid)]
-            yield sct.Relationship(src, tgt, **vals)
-
-    def __get_in_relationships(self, tgt_sctid: int) -> Generator[Dict, None, None]:
-        tgt = sct.ConceptDetails(sctid=tgt_sctid, **self.g.nodes[tgt_sctid])
-        for src_sctid, _ in self.g.in_edges(tgt_sctid):
-            src = sct.ConceptDetails(sctid=src_sctid, **self.g.nodes[src_sctid])
-            vals = self.g.edges[(src_sctid, tgt_sctid)]
-            yield sct.Relationship(src, tgt, **vals)
-
-    def get_descendants(self, sctid: int, steps_removed: int = None) -> List[sct.ConceptDetails]:
+    def get_grouped_relationships(self, sctid: int) -> Dict[str, List[sct.Relationship]]:
         """
-        Récupère les descendants d'un concept.
+        Renvoie la liste des relations non hiérarchiques d'un concept avec les groupes
+        relationnels.
 
         Args:
-            sctid: Un identifiant de concept SNOMED CT valide.
-            steps_removed: Le nombre de niveaux de la hiérarchie jusqu'où descendre.
-                           (1 => enfants; 2 => enfants + petit-enfants, etc)
-                           si None alors tous les descendants sont récupérés.
+            sctid: Identifiant valide d'un concept SNOMED CT.
 
         Returns:
-            Une liste des SCTID des descendants.
+            Un dictionnaire des relations non hiérarchiques regroupées par groupe relationnel.
         """
-        if steps_removed is None:
-            steps_removed = 99999
-        elif steps_removed <= 0:
-            raise AssertionError("steps_removed doit être > 0 ou None")
-        children = self.get_children(sctid)
-        descendants = set(children)
-        if steps_removed > 1:
-            for c in children:
-                descendants = descendants.union(
-                    self.get_descendants(c.sctid, steps_removed - 1)
-                )
-        return descendants
+        relationship = defaultdict(list)
+        {relationship[rel.group].append(rel) for rel in self._out_relationships(sctid)
+         if rel.attribute.sctid != "116680003"}
+        return dict(relationship)
 
-    def get_ancestors(self, sctid: int, steps_removed: int = None) -> List[sct.ConceptDetails]:
+    def get_ungrouped_relationships(self, sctid: int) -> List[sct.Relationship]:
         """
-        Récupère tous ancêtres d'un concept.
+        Renvoie la liste brute des relations non hiérarchiques d'un concept.
 
         Args:
-            sctid: Un identifiant de concept SNOMED CT valide.
-            steps_removed: Le nombre de niveaux de la hiérarchie jusqu'où remonter.
-                           (1 => parents; 2 => parents + grand-parents, etc)
-                           si None alors tous les parents sont récupérés.
+            sctid: Identifiant valide d'un concept SNOMED CT.
 
         Returns:
-            Une liste des SCTID de tous les ancêtres.
+            Une liste des relations non hiérarchiques.
         """
-        if steps_removed is None:
-            steps_removed = 99999
-        elif steps_removed <= 0:
-            raise AssertionError("steps_removed doit être > 0 ou None")
-        parents = self.get_parents(sctid)
-        ancestors = set(parents)
-        if steps_removed > 1:
-            for p in parents:
-                ancestors = ancestors.union(
-                    self.get_ancestors(p.sctid, steps_removed - 1)
-                )
-        return set([a for a in ancestors if not a.sctid == self.root])
+        return [rel for rel in self._out_relationships(sctid)
+                if rel.attribute.sctid != "116680003"]
 
-    def get_neighbourhood(self, sctid: int, steps_removed: int = 1) -> List[sct.ConceptDetails]:
+    ##############################################
+    # Méthodes d'accès à la hiérarchie du graphe #
+    ##############################################
+    def get_ancestors(self, sctid: str, degree: int = 999999) -> List[sct.ConceptDetails]:
         """
-        Récupère les voisins d'un d'un concept.
-        Les voisins comprennent les ancêtres, descendants et cousins jusqu'à un degré donné.
+        Renvoie les ancêtres d'un concept.
 
         Args:
-            sctid: Un identifiant de concept SNOMED CT valide.
-            steps_removed: Le nombre de niveaux jusqu'où descendre ou remonter dans la hiérarchie.
-                           Par défaut à 1 (parents + enfants).
+            sctid: Identifiant valide d'un concept SNOMED CT.
+            degree: Le nombre de niveau à remonter dans la hiérarchie
+                (999999 par défaut, soit tous les ancêtres).
 
         Returns:
-            Une liste contenant tous les SCTIDs des voisins.
+            Liste des ancêtres.
         """
-        assert steps_removed > 0
-        parents = self.get_parents(sctid)
-        children = self.get_children(sctid)
-        neighbourhood = set(parents).union(children)
-        if steps_removed > 1:
-            for n in list(neighbourhood):
-                neighbourhood = neighbourhood.union(
-                    self.get_neighbourhood(n.sctid, steps_removed - 1)
-                )
-        neighbourhood = [
-            n for n in neighbourhood
-            if n.sctid not in [sctid, self.root]
+        ancestors = nx.single_source_dijkstra_path_length(
+            self.g, sctid, degree, lambda s, t, a: 1 if a["attribute"] == "116680003" else None
+        )
+        return [self.get_concept_details(t) for t in ancestors.keys() if ancestors[t] > 0]
+
+    def get_children(self, sctid: int) -> List[sct.ConceptDetails]:
+        """
+        Renvoie les enfants d'un concept.
+
+        Args:
+            sctid: Identifiant valide d'un concept SNOMED CT.
+
+        Returns
+            La liste des SCTIDs des enfants.
+        """
+        return [rel.src for rel in self._in_relationships(sctid)
+                if rel.attribute.sctid == "116680003"]
+
+    def get_descendants(self, sctid: str, degree: int = 999999) -> List[sct.ConceptDetails]:
+        """
+        Renvoie les descendants d'un concept.
+
+        Args:
+            sctid: Identifiant valide d'un concept SNOMED CT.
+            degree: Le nombre de niveau à descendre dans la hiérarchie
+                (999999 par défaut, soit tous les descendants).
+
+        Returns:
+            Liste des descendants.
+        """
+        filter = nx.ancestors(self.g, sctid)
+        descendants = set(nx.single_source_dijkstra_path_length(
+            self.undir, sctid, degree, lambda s, t, a: 1 if a["attribute"] == "116680003" else None
+        ).keys())
+        descendants = descendants.intersection(filter)
+
+        return [self.get_concept_details(id) for id in descendants]
+
+    def get_neighbors(self, sctid: int, degree: int = 1) -> List[sct.ConceptDetails]:
+        """
+        Renvoie les voisins d'un concept. Les voisins comprennent les ancêtres, descendants et
+        cousins jusqu'à un certain degré `degree`.
+
+        Args:
+            sctid: Identifiant valide d'un concept SNOMED CT.
+            degree: Le nombre de niveau à remonter ou descendre dans la hiérarchie
+                (1 par défaut, soit les parents et les enfants).
+
+        Returns:
+            Une liste des voisins.
+        """
+        target = nx.single_source_dijkstra_path_length(
+            self.undir, sctid, degree, lambda s, t, a: 1 if a["attribute"] == "116680003" else None
+        )
+        return [self.get_concept_details(t) for t in target.keys()]
+
+    def get_parents(self, sctid: str) -> List[sct.ConceptDetails]:
+        """
+        Renvoie les parents d'un concept.
+
+        Args:
+            sctid: Identifiant valide d'un concept SNOMED CT.
+
+        Returns
+            La liste des SCTIDs des parents.
+        """
+        return [rel.tgt for rel in self._out_relationships(sctid)
+                if rel.attribute.sctid == "116680003"]
+
+    ################################
+    # Méthodes d'analyse du graphe #
+    ################################
+    def hierarchical_path(self, src: int, tgt: int) -> List[sct.ConceptDetails]:
+        """
+        Retourne le chemin le plus court entre les concepts en utilisant uniquement les relations
+        hiérarchiques via l'algorithme de Dijkstra.
+
+        Args:
+            src: Identifiant valide d'un concept SNOMED CT source.
+            tgt: Identifiant valide d'un concept SNOMED CT cible.
+
+        Returns:
+            Une liste des concepts formant le chemin entre la source et la cible.
+        """
+        return [self.get_concept_details(c) for c in nx.dijkstra_path(
+            self.undir, src, tgt, lambda s, t, a: 1 if a["attribute"] == "116680003" else None)
         ]
-        return neighbourhood
 
-    def find_path(self, sctid1: int, sctid2: int, print_: bool = False) -> List[sct.Relationship]:
+    def hierarchical_path_to_root(self, sctid: int) -> List[sct.ConceptDetails]:
         """
-        Retourne les détails du chemin le plus court existant entre 2 concepts.
-        Le chemin prend en compte tous les attributs mais limite les resultats aux vrais ancêtres
-        ou descentants - i.e. les concepts qui sont "cousins" l'un de l'autre ne seront pas dans
-        le chemin retourné.
+        Retourne le chemin le plus court entre le concept et la racine du graphe en utilisant
+        uniquement les relations hiérarchiques via l'algorithme de Dijkstra.
 
         Args:
-            sctid1: Un identifiant de concept SNOMED CT valide.
-            sctid2: Un identifiant de concept SNOMED CT valide.
-            print_: Indique si le chemin est affiché ou non sous forme de string.
+            sctid: Identifiant valide d'un concept SNOMED CT
 
         Returns:
-            Une liste de Relationship de la forme (source, attribut, cible).
-            Ce sont les étapes du plus court chemin de la source à la cible.
+            Une liste des concepts formant le chemin entre le concept et la racine.
         """
-        path = []
-        if nx.has_path(self.g, sctid1, sctid2):
-            nodes = nx.shortest_path(self.g, sctid1, sctid2)
-        elif nx.has_path(self.g, sctid2, sctid1):
-            nodes = nx.shortest_path(self.g, sctid2, sctid1)
-        else:
-            nodes = []
-        for src_sctid, tgt_sctid in pairwise(nodes):
-            vals = self.g.edges[(src_sctid, tgt_sctid)]
-            src = sct.ConceptDetails(sctid=src_sctid, **self.g.nodes[src_sctid])
-            tgt = sct.ConceptDetails(sctid=tgt_sctid, **self.g.nodes[tgt_sctid])
-            relationship = sct.Relationship(src, tgt, **vals)
-            path.append(relationship)
-        if print_:
-            if len(nodes) > 0:
-                str_ = f"[{path[0].src}]"
-                for r in path:
-                    str_ += f" ---[{r.type}]---> [{r.tgt}]"
-                print(str_)
-            else:
-                print("No path found.")
-        return path
+        return self.path(sctid, self.root)
 
-    def path_to_root(self, sctid: int, print_: bool = False) -> List[sct.Relationship]:
+    def path(self, src: int, tgt: int) -> List[sct.ConceptDetails]:
         """
-        Trouve le plus court chemin de relation "is a" d'un concept au concept racine.
-        Peut être utilisé pour identifier la profondeur d'un concept.
+        Retourne le chemin le plus court entre les concepts en utilisant les relations
+        hiérarchiques et non hiérarchiques via l'algorithme de Dijkstra.
 
         Args:
-            sctid: Un identifiant de concept SNOMED CT valide.
-            print_: Indique si le chemin est affiché ou non sous forme de string.
+            src: Identifiant valide d'un concept SNOMED CT source.
+            tgt: Identifiant valide d'un concept SNOMED CT cible.
+
         Returns:
-            Une liste de Relationship de la forme (source, attribut, cible).
-            Ce sont les étapes du plus court chemin du concept à la racine.
+            Une liste des concepts formant le chemin entre la source et la cible.
         """
-        shortest_path = None
-        for nodes in nx.all_simple_paths(self.g, sctid, self.root):
-            path = list()
-            for src_sctid, tgt_sctid in pairwise(nodes):
-                vals = self.g.edges[(src_sctid, tgt_sctid)]
-                src = sct.ConceptDetails(sctid=src_sctid, **self.g.nodes[src_sctid])
-                tgt = sct.ConceptDetails(sctid=tgt_sctid, **self.g.nodes[tgt_sctid])
-                relationship = sct.Relationship(src, tgt, **vals)
-                if relationship.type_id == self.is_a_relationship_typeId:
-                    path.append(relationship)
-                else:
-                    path = None
-                    break
-            if path:
-                if shortest_path:
-                    if len(shortest_path) > len(path):
-                        shortest_path = path
-                else:
-                    shortest_path = path
-        if print_:
-            str_ = f"[{shortest_path[0].src}]"
-            for r in shortest_path:
-                str_ += f" ---[{r.type}]---> [{r.tgt}]"
-            print(str_)
-        return shortest_path
+        return [self.get_concept_details(c) for c in nx.dijkstra_path(self.undir, src, tgt)]
 
-    def save(self, path: str) -> None:
-        """
-        Sauvegarde ce Graphe
-
-        Args:
-            path: Chemin + nom du fichier où sauvegarder.
-        """
-        nx.write_gml(self.g, path)
-
+    #######################################################
+    # Méthodes de manipulation & transformation du graphe #
+    #######################################################
     def to_pandas(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Retourne les nœuds et arcs de ce graphe sous forme de DataFrame Pandas
+        Transforme le graphe en deux DataFrame Pandas (nœuds et arcs).
 
         Returns:
-            Deux DataFrames Pandas (nœuds, arcs)
+            Tuple contenant le DataFrame des nœuds et celui des arcs.
         """
         nodes_df = (
             pd.DataFrame([{"sctid": n, **self.g.nodes[n]} for n in self.g.nodes])
@@ -299,237 +306,46 @@ class Graphe():
         edges_df = nx.to_pandas_edgelist(self.g)
         return nodes_df, edges_df
 
-    @property
-    def relationship_types(self) -> Set[str]:
+    def subgraph(self, target: str, down: str = True, up: str = False) -> Self:
         """
-        Retourne l'ensemble des attributs existants.
-
-        Returns:
-            Un Set de string
-        """
-        return set(nx.get_edge_attributes(self.g, "type").values())
-
-    @staticmethod
-    def from_serialized(path: str) -> Self:
-        """
-        Charge un graphe depuis une linéarisation.
+        Renvoie un sous-graphe centré sur un concept. Le sous-graphe peut regrouper les ancêtres
+        et/ou les descendants du concept, les attributs utilisés par ces concepts, les valeurs
+        de ces attributs et les ancêtres des valeurs.
 
         Args:
-            path: Chemin + nom du fichier sauvegardé.
+            target: Concept centre du sous-graphe.
+            down: Indique si les descendants du concept sont récupérés (oui par défaut).
+            up: Indique si les ancêtres du concept sont récupérés (non par défaut).
 
         Returns:
-            Un objet Graphe.
+            Renvoie un objet SnomedGraph contenant le sous-graphe
         """
-        g = nx.read_gml(path, destringizer=int)
-        return Graphe(g)
+        nodes = {target}
+        if down:
+            # Récupère les descendants
+            nodes = nodes.union({c.sctid for c in self.get_descendants(target)})
+        if up:
+            # Récupère les ancêtres
+            nodes = nodes.union({c.sctid for c in self.get_ancestors(target)})
 
-    @staticmethod
-    def get_core_file_paths(path: str, lang: str = "fr") -> Tuple[str]:
-        """
-        Génère les chemins vers les fichiers d'intérêts au sein d'une archive RF2.
+        # Récupère les relations non hiérarchiques de tous les concepts
+        rel = [r for n in nodes for r in self.get_ungrouped_relationships(n)]
 
-        Args:
-            path: Chemin vers l'archive RF2.
-            lang: Autre langue que l'anglais présente dans la release, par défaut 'fr'.
+        if rel:
+            # Extraire les attributs des relations non hiérarchiques
+            attributes = {r.attribute.sctid for r in rel}
+            # Extraire les valeurs des relations non hiérarchiques
+            values = {r.tgt.sctid for r in rel}
 
-        Returns:
-            Un Tuple contenant les fichiers de concepts, descriptions, relations et refset
-            de langue.
-        """
-        # Normaliser le chemin de l'archive RF2
-        path = op.abspath(path)
-        # Vérification de l'existance du dossier
-        if not op.exists(path):
-            raise AssertionError(f"Le chemin '{path}' n'existe pas")
+            # Récupère les ancêtres des attributs utilisés & les attributs
+            nodes = nodes.union({c.sctid for a in attributes for c in self.get_ancestors(a)})
+            nodes = nodes.union(attributes)
+            if down or up:
+                nodes = nodes.union({"116680003"})
 
-        try:
-            # Récupération des différents éléments à partir du nom du dossier
-            elements = path.split("_")
-            if len(elements) == 5:
-                _, _, _, ns, date = elements
-            elif len(elements) == 4:
-                _, _, _, date = elements
-                ns = "INT"
-            else:
-                raise AttributeError
-            date = datetime.strptime(date, "%Y%m%dT%H%M%SZ").strftime("%Y%m%d")
-        except (AttributeError, ValueError, AssertionError):
-            raise AssertionError(f"Le dossier '{path}' ne suit pas les convention de nommage RF2.")
+            # Récupère les ancêtres des valeurs d'attributs utilisées & les valeurs
+            nodes = nodes.union({c.sctid for v in values for c in self.get_ancestors(v)})
+            nodes = nodes.union(values)
 
-        termino_path = op.join(path, "Snapshot/Terminology")
-        lang_path = op.join(path, "Snapshot/Refset/Language")
-
-        # Création et vérification de l'existence du fichier des concepts
-        concepts_path = op.join(termino_path,
-                                f"sct2_Concept_Snapshot_{ns}_{date}.txt")
-        if not op.exists(concepts_path):
-            raise AssertionError(f"Le chemin '{concepts_path}' n'existe pas")
-
-        # Création et vérification de l'existence du fichier des descriptions anglaises
-        en_desc_path = op.join(termino_path,
-                               f"sct2_Description_Snapshot-en_{ns}_{date}.txt")
-        if not op.exists(en_desc_path):
-            raise AssertionError(f"Le chemin '{en_desc_path}' n'existe pas")
-        if lang:
-            # Création et vérification de l'existence du fichier des descriptions non anglaises
-            lang_desc_path = op.join(termino_path,
-                                     f"sct2_Description_Snapshot-{lang}_{ns}_{date}.txt")
-            if not op.exists(lang_desc_path):
-                raise AssertionError(f"Le chemin '{lang_desc_path}' n'existe pas")
-        else:
-            # Pas de description non anglaise
-            lang_desc_path = ""
-
-        # Création et vérification de l'existence du refset de langue anglaise
-        en_accept_path = op.join(lang_path,
-                                 f"der2_cRefset_LanguageSnapshot-en_{ns}_{date}.txt")
-        if not op.exists(en_accept_path):
-            raise AssertionError(f"Le chemin '{en_accept_path}' n'existe pas")
-        if lang:
-            # Création et vérification de l'existence du refset de langue non anglaise
-            lang_accept_path = op.join(lang_path,
-                                       f"der2_cRefset_LanguageSnapshot-{lang}_{ns}_{date}.txt")
-            if not op.exists(lang_accept_path):
-                raise AssertionError(f"Le chemin '{lang_accept_path}' n'existe pas")
-        else:
-            # Pas de refset de langue non anglaise
-            lang_accept_path = ""
-
-        # Création et vérification de l'existence du fichier des relations
-        relationships_path = op.join(termino_path,
-                                     f"sct2_Relationship_Snapshot_{ns}_{date}.txt")
-        if not op.exists(relationships_path):
-            raise AssertionError(f"Le chemin '{relationships_path}' n'existe pas")
-
-        return (concepts_path, en_desc_path, lang_desc_path, en_accept_path, lang_accept_path,
-                relationships_path)
-
-    @staticmethod
-    def from_rf2(path: str, lang: str = "fr") -> Self:
-        """
-        Crée un Graphe depuis une archive RF2.
-
-        Args:
-            path: Chemin vers l'archive RF2.
-            lang: Autre langue que l'anglais présente dans la release, par défaut 'fr'.
-
-        Returns:
-            Un objet Graphe.
-        """
-        (c_path, en_desc_path, lang_desc_path, en_accept_path, lang_accept_path,
-         rs_path) = Graphe.get_core_file_paths(path)
-
-        # Charge les concepts
-        print("Lecture du fichier des concepts ...")
-        concepts = pd.read_csv(c_path, sep="\t", dtype=str, usecols=["id", "active"])
-        concepts = concepts.loc[concepts.loc[:, "active"] == "1"]
-
-        # Charge les descriptions
-        print("Lecture du fichier des descriptions anglaises...")
-        desc = pd.read_csv(en_desc_path, dtype=str, quoting=3, encoding="UTF-8",
-                           sep="\t", usecols=["id", "active", "conceptId", "languageCode",
-                                              "typeId", "term"])
-        if lang:
-            print("Lecture du fichier des descriptions non anglaises...")
-            desc = pd.concat([
-                desc,
-                pd.read_csv(lang_desc_path, sep="\t", dtype=str, quoting=3, encoding="UTF-8",
-                            usecols=["id", "active", "conceptId", "languageCode", "typeId",
-                                     "term"])
-            ])
-        desc = desc.loc[desc.loc[:, "active"] == "1"]
-        # Supprime les descriptions actives de concepts inactifs
-        desc = desc.loc[desc.loc[:, "conceptId"].isin(concepts.loc[:, "id"])]
-        del concepts
-
-        # Charge les refsets de langue
-        print("Lecture du fichier du refset de langue anglaise...")
-        accept = pd.read_csv(en_accept_path, dtype=str, sep="\t",
-                             usecols=["active", "refsetId", "referencedComponentId",
-                                      "acceptabilityId"])
-        if lang:
-            print("Lecture du fichier du refset de langue non anglaise...")
-            accept = pd.concat([
-                accept,
-                pd.read_csv(lang_accept_path, sep="\t", dtype=str,
-                            usecols=["active", "refsetId", "referencedComponentId",
-                                     "acceptabilityId"])
-            ])
-        accept = accept.loc[accept.loc[:, "active"] == "1"]
-        # Supprimer les PT en anglais britannique
-        accept = accept.loc[(accept.loc[:, "refsetId"] != "900000000000508004")
-                            | (accept.loc[:, "acceptabilityId"] != "900000000000548007")]
-
-        # Ajouter l'acceptabilité aux descriptions
-        desc = desc.merge(accept, how="left", left_on="id", right_on="referencedComponentId")
-        del accept
-        # Suppression des doublons entre anglais US & UK
-        desc.drop(["id", "active_x", "active_y", "refsetId", "referencedComponentId"], axis=1,
-                  inplace=True)
-        desc.drop_duplicates(inplace=True)
-
-        # Division par langue et acceptabilité
-        pt_en = desc.loc[(desc.loc[:, "typeId"] != "900000000000003001")
-                         & (desc.loc[:, "acceptabilityId"] == "900000000000548007")
-                         & (desc.loc[:, "languageCode"] == "en")]
-        syn_en = desc.loc[(desc.loc[:, "acceptabilityId"] == "900000000000549004")
-                          & (desc.loc[:, "languageCode"] == "en")]
-        if lang:
-            pt_lang = desc.loc[(desc.loc[:, "typeId"] != "900000000000003001")
-                               & (desc.loc[:, "acceptabilityId"] == "900000000000548007")
-                               & (desc.loc[:, "languageCode"] == lang)]
-            syn_lang = desc.loc[(desc.loc[:, "acceptabilityId"] == "900000000000549004")
-                                & (desc.loc[:, "languageCode"] == lang)]
-
-        # Charge les relations
-        print("Lecture du fichier des relations...")
-        relations = pd.read_csv(rs_path, sep="\t", dtype=str,
-                                usecols=["active", "sourceId", "destinationId",
-                                         "relationshipGroup", "typeId"])
-        relations = relations.loc[relations.loc[:, "active"] == "1"]
-
-        # Crée l'index des attributs
-        attributs = pt_en.loc[pt_en.loc[:, "conceptId"].isin(relations.loc[:, "typeId"].unique())]
-        attributs.set_index("conceptId", inplace=True)
-        attributs = attributs.loc[:, "term"].to_dict()
-
-        # Création du DataFrame des nœuds
-        nodes = desc.loc[(desc.loc[:, "typeId"] == "900000000000003001")
-                         & (desc.loc[:, "languageCode"] == "en"), ["conceptId", "term"]]
-        nodes.set_index("conceptId", inplace=True)
-        # Ajout colonnes PT
-        nodes = pd.concat([nodes, pt_en.groupby("conceptId")["term"].apply(list)], axis=1)
-        if lang:
-            nodes = pd.concat([nodes, pt_lang.groupby("conceptId")["term"].apply(list)], axis=1)
-        # Ajout colonnes SYN
-        nodes = pd.concat([nodes, syn_en.groupby("conceptId")["term"].apply(list)], axis=1)
-        if lang:
-            nodes = pd.concat([nodes, syn_lang.groupby("conceptId")["term"].apply(list)], axis=1)
-        # Normalisation du DataFrame
-        nodes.fillna("", inplace=True)
-        nodes.columns = ["fsn", "pt_en", "pt_lang", "syn_en", "syn_lang"]
-        nodes.loc[:, "pt_en"] = ["".join(map(str, col)) for col in nodes.loc[:, "pt_en"]]
-        nodes.loc[:, "pt_lang"] = ["".join(map(str, col)) for col in nodes.loc[:, "pt_lang"]]
-        del desc
-
-        # Initialisation du graphe
-        print(f"Lecture de {len(nodes)} concepts et {len(relations)} relations du RF2.")
-        g = nx.DiGraph()
-
-        # Création des nœuds
-        print("\nCréation des concepts...")
-        g.add_nodes_from((id, dict(row)) for id, row in tqdm(nodes.iterrows(), total=len(nodes)))
-
-        # Crée les relations
-        print("Création des relations...")
-        for r in tqdm(relations.to_dict(orient="records")):
-            g.add_edge(
-                r["sourceId"],
-                r["destinationId"],
-                group=r["relationshipGroup"],
-                type=attributs[r["typeId"]],
-                type_id=r["typeId"]
-            )
-
-        # Retourne le graphe complet
-        return Graphe(g)
+        # Création du graphe, avec comme racine le concept centre du sous-graphe
+        return SnomedGraph(self.g.subgraph(nodes).copy(), self.lang, root=target)
