@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from snomed_graphe.graphe import SnomedGraph
 from typing import Dict, List, Tuple, Union
@@ -101,9 +102,9 @@ def test_get_parents(sct: SnomedGraph, parents: List[str]) -> None:
     assert p == parents
 
 
-##########################################
-# Tests des méthodes d'analyse du graphe #
-##########################################
+############################################
+# Tests des méthodes de calcul des chemins #
+############################################
 
 
 def test_hierarchical_path(sct: SnomedGraph, hierarchical_path: List[str]) -> None:
@@ -144,17 +145,24 @@ def test_path_direction(sct: SnomedGraph) -> None:
 ################################################################
 
 
-def test_to_pandas_nodes(sct: SnomedGraph, df_nodes: pd.DataFrame) -> None:
-    sct_nodes, _ = sct.to_pandas()
+def test_graph_to_pandas_nodes(sct: SnomedGraph, df_nodes: pd.DataFrame) -> None:
+    sct_nodes, _ = sct.graph_to_pandas()
 
     pd.testing.assert_frame_equal(sct_nodes, df_nodes)
 
 
-def test_to_pandas_edges(sct: SnomedGraph, df_edges: pd.DataFrame) -> None:
-    _, sct_edges = sct.to_pandas()
+def test_graph_to_pandas_edges(sct: SnomedGraph, df_edges: pd.DataFrame) -> None:
+    _, sct_edges = sct.graph_to_pandas()
     sct_edges = sct_edges[["source", "target", "group", "src", "attribute", "tgt"]]
 
     pd.testing.assert_frame_equal(sct_edges, df_edges)
+
+
+def test_desc_to_pandas(sct: SnomedGraph, df_desc: pd.DataFrame) -> None:
+    desc = sct.desc_to_pandas()
+    desc.reset_index(drop=True, inplace=True)
+
+    pd.testing.assert_frame_equal(desc, df_desc)
 
 
 def test_subgraph(sct: SnomedGraph, sub_sct: SnomedGraph) -> None:
@@ -170,3 +178,43 @@ def test_subgraph(sct: SnomedGraph, sub_sct: SnomedGraph) -> None:
     sub_sct_e.sort()
 
     assert (sub_n, sub_e) == (sub_sct_n, sub_sct_e)
+
+
+def test_search_in_desc_error(sct: SnomedGraph) -> None:
+    with pytest.raises(ValueError):
+        sct.search_in_desc("myocarde", accept="valeur incorrecte")
+
+
+def test_search_in_desc_default(sct: SnomedGraph, search: List[str]) -> None:
+    s = sct.search_in_desc("myo")
+    s.sort()
+
+    assert s == search
+
+
+def test_search_in_desc_syn(sct: SnomedGraph, search_syn: List[str]) -> None:
+    s = sct.search_in_desc("myo", accept="ACCEPT")
+    s.sort()
+
+    assert s == search_syn
+
+
+def test_search_in_desc_pt(sct: SnomedGraph, search_pt: List[str]) -> None:
+    s = sct.search_in_desc("myo", accept="PREF")
+    s.sort()
+
+    assert s == search_pt
+
+
+def test_search_in_desc_fsn(sct: SnomedGraph, search_fsn: List[str]) -> None:
+    s = sct.search_in_desc("myo", fsn="disorder")
+    s.sort()
+
+    assert s == search_fsn
+
+
+def test_search_in_desc_absent(sct: SnomedGraph, search_absent: List[str]) -> None:
+    s = sct.search_in_desc("myo", is_in=False)
+    s.sort()
+
+    assert s == search_absent

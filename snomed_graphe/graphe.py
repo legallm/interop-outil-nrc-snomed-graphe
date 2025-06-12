@@ -243,9 +243,9 @@ class SnomedGraph():
         return [rel.tgt for rel in self._out_relationships(sctid)
                 if rel.attribute.sctid == "116680003"]
 
-    ################################
-    # Méthodes d'analyse du graphe #
-    ################################
+    ##################################
+    # Méthodes de calcul des chemins #
+    ##################################
     def hierarchical_path(self, src: int, tgt: int) -> List[sct.ConceptDetails]:
         """
         Retourne le chemin le plus court entre les concepts en utilisant uniquement les relations
@@ -292,7 +292,7 @@ class SnomedGraph():
     #######################################################
     # Méthodes de manipulation & transformation du graphe #
     #######################################################
-    def to_pandas(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def graph_to_pandas(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Transforme le graphe en deux DataFrame Pandas (nœuds et arcs).
 
@@ -303,8 +303,55 @@ class SnomedGraph():
             pd.DataFrame([{"sctid": n, **self.g.nodes[n]} for n in self.g.nodes])
             .set_index("sctid")
         )
+
         edges_df = nx.to_pandas_edgelist(self.g)
-        return nodes_df, edges_df
+        return (nodes_df, edges_df)
+
+    def desc_to_pandas(self, lang: str = "fr") -> pd.DataFrame:
+        """
+        Fournit une visualisation des descriptions sous forme de DataFrame Pandas.
+
+        Args:
+            lang: Langue autre que l'anglais utilisée dans le graphe.
+
+        Returns:
+            DataFrame représentant les descriptions du graphe.
+        """
+        nodes_df = (
+            pd.DataFrame([{"sctid": n, **self.g.nodes[n]} for n in self.g.nodes])
+            .set_index("sctid")
+        )
+        nodes_df.reset_index(inplace=True)
+
+        # Restructuration des PT anglais
+        nodes_en_pt = nodes_df.loc[:, ["sctid", "fsn", "pt_en"]]
+        nodes_en_pt.columns = ["conceptId", "fsn", "term"]
+        nodes_en_pt.loc[:, "acceptability"] = ["PREF"] * len(nodes_en_pt)
+        nodes_en_pt.loc[:, "lang"] = ["en"] * len(nodes_en_pt)
+
+        # Restructuration des synonymes anglais
+        nodes_en_syn = nodes_df.loc[:, ["sctid", "fsn", "syn_en"]]
+        nodes_en_syn = nodes_en_syn.explode("syn_en", ignore_index=True)
+        nodes_en_syn.columns = ["conceptId", "fsn", "term"]
+        nodes_en_syn.loc[:, "acceptability"] = ["ACCEPT"] * len(nodes_en_syn)
+        nodes_en_syn.loc[:, "lang"] = ["en"] * len(nodes_en_syn)
+
+        # Restructuration des PT anglais
+        nodes_lang_pt = nodes_df.loc[:, ["sctid", "fsn", "pt_lang"]]
+        nodes_lang_pt.columns = ["conceptId", "fsn", "term"]
+        nodes_lang_pt.loc[:, "acceptability"] = ["PREF"] * len(nodes_lang_pt)
+        nodes_lang_pt.loc[:, "lang"] = [lang] * len(nodes_lang_pt)
+
+        # Restructuration des synonymes anglais
+        nodes_lang_syn = nodes_df.loc[:, ["sctid", "fsn", "syn_lang"]]
+        nodes_lang_syn = nodes_lang_syn.explode("syn_lang", ignore_index=True)
+        nodes_lang_syn.columns = ["conceptId", "fsn", "term"]
+        nodes_lang_syn.loc[:, "acceptability"] = ["ACCEPT"] * len(nodes_lang_syn)
+        nodes_lang_syn.loc[:, "lang"] = [lang] * len(nodes_lang_syn)
+
+        nodes = pd.concat([nodes_en_pt, nodes_en_syn, nodes_lang_pt, nodes_lang_syn],
+                          ignore_index=True)
+        return nodes.loc[nodes.loc[:, "term"] != ""]
 
     def subgraph(self, target: str, down: str = True, up: str = False) -> Self:
         """
@@ -349,3 +396,56 @@ class SnomedGraph():
 
         # Création du graphe, avec comme racine le concept centre du sous-graphe
         return SnomedGraph(self.g.subgraph(nodes).copy(), self.lang, root=target)
+
+    def search_in_desc(self, term: str, hierarchy: str = "", accept: str = "", is_in: bool = True,
+                       lang: str = "fr", regex_term: bool = False, case_term: bool = False,
+                       fsn: str = "", regex_fsn: bool = False,
+                       case_fsn: bool = False) -> List[str]:
+        """Chercher un terme dans les descriptions non-anglaises si le FSN contient un terme
+        spécifique.
+
+        Args:
+            term: Terme à rechercher dans les descriptions non-anglaises.
+            hierarchy: SCTID de la sous-hiérarchie à laquelle limiter la recherche.
+            accept: Indique si `term` doit être cherché dans un terme préféré ("PREF"),
+                un synonyme acceptable ("ACCEPT") ou peu importe ("").
+            is_in: Indique si `term` doit être présent (True) ou absent (False).
+            lang: Indique la langue dans laquelle `term` doit être choisie, par défaut "fr".
+            regex_term: Indique si `term` est une regex ou non.
+            case_term: Indique si la recherche doit être sensible à la casse de `term`.
+            fsn: Terme à rechercher dans les FSN des concepts auxquels limiter la recherche.
+            regex_fsn: Indique si `fsn` est une regex ou non.
+            case_fsn: Indique si la recherche doit être sensible à la casse de `fsn`.
+
+        Returns:
+            Liste des SCTID des concepts répondant à la requête.
+        """
+        # Vérifier la valeur d'acceptabilité
+        if accept not in ["", "PREF", "ACCEPT"]:
+            raise ValueError("L'acceptabilité ne peut être que '', 'PREF' ou 'ACCEPT'.")
+
+        # Récupérer la sous-partie de la SNOMED CT pertinente
+        if hierarchy:
+            df = self.subgraph(hierarchy).desc_to_pandas()
+        else:
+            df = self.desc_to_pandas()
+
+        # Filtre sur l'acceptabilité
+        if accept:
+            df = df.loc[df.loc[:, "acceptability"] == accept]
+
+        # Filtre sur le FSN
+        if fsn:
+            df = df.loc[df.loc[:, "fsn"].str.contains(fsn, regex=regex_fsn, case=case_fsn)]
+
+        # Recherche du terme
+        if is_in:
+            df = df.loc[(df.loc[:, "lang"] == lang)
+                        & (df.loc[:, "term"].str.contains(term, regex=regex_term, case=case_term))]
+        else:
+            df = df.loc[
+                (df.loc[:, "lang"] == lang)
+                & (~df.loc[:, "term"].str.contains(term, regex=regex_term, case=case_term))
+            ]
+
+        return list(df.loc[:, "conceptId"].unique())

@@ -159,26 +159,26 @@ def _rf2_paths(path: str, lang: str = "fr") -> Tuple[str]:
     language = op.join(path, "Snapshot/Refset/Language")
 
     # Création et vérification de l'existence du fichier des concepts
-    concepts = op.join(terminology, f"sct2_Concept_Snapshot_{ns}_{date}.txt")
+    concepts = op.join(terminology, f"xsct2_Concept_Snapshot_{ns}_{date}.txt")
     if not op.exists(concepts):
         raise AssertionError(f"Le chemin '{concepts}' n'existe pas")
 
     # Création et vérification de l'existence du fichier des descriptions anglaises
-    en_desc = op.join(terminology, f"sct2_Description_Snapshot-en_{ns}_{date}.txt")
+    en_desc = op.join(terminology, f"xsct2_Description_Snapshot-en_{ns}_{date}.txt")
     if not op.exists(en_desc):
         raise AssertionError(f"Le chemin '{en_desc}' n'existe pas")
     # Création et vérification de l'existence du refset de langue anglaise
-    en_accept = op.join(language, f"der2_cRefset_LanguageSnapshot-en_{ns}_{date}.txt")
+    en_accept = op.join(language, f"xder2_cRefset_LanguageSnapshot-en_{ns}_{date}.txt")
     if not op.exists(en_accept):
         raise AssertionError(f"Le chemin '{en_accept}' n'existe pas")
 
     if lang:
         # Création et vérification de l'existence du fichier des descriptions non anglaises
-        lang_desc = op.join(terminology, f"sct2_Description_Snapshot-{lang}_{ns}_{date}.txt")
+        lang_desc = op.join(terminology, f"xsct2_Description_Snapshot-{lang}_{ns}_{date}.txt")
         if not op.exists(lang_desc):
             raise AssertionError(f"Le chemin '{lang_desc}' n'existe pas")
         # Création et vérification de l'existence du refset de langue non anglaise
-        lang_accept = op.join(language, f"der2_cRefset_LanguageSnapshot-{lang}_{ns}_{date}.txt")
+        lang_accept = op.join(language, f"xder2_cRefset_LanguageSnapshot-{lang}_{ns}_{date}.txt")
         if not op.exists(lang_accept):
             raise AssertionError(f"Le chemin '{lang_accept}' n'existe pas")
     else:
@@ -187,7 +187,7 @@ def _rf2_paths(path: str, lang: str = "fr") -> Tuple[str]:
         lang_accept = ""
 
     # Création et vérification de l'existence du fichier des relations
-    relations = op.join(terminology, f"sct2_Relationship_Snapshot_{ns}_{date}.txt")
+    relations = op.join(terminology, f"xsct2_Relationship_Snapshot_{ns}_{date}.txt")
     if not op.exists(relations):
         raise AssertionError(f"Le chemin '{relations}' n'existe pas")
 

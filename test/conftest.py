@@ -401,7 +401,7 @@ def df_nodes() -> pd.DataFrame:
 
 @pytest.fixture
 def df_edges() -> pd.DataFrame:
-    edges = pd.DataFrame({
+    return pd.DataFrame({
         "source": ["1163440003", "1163440003", "1163440003", "1163440003", "1163440003",
                    "129574000", "129574000", "129574000", "129574000", "311796008", "311796008",
                    "311796008", "311796008", "311792005", "311792005", "311792005", "311792005",
@@ -444,7 +444,108 @@ def df_edges() -> pd.DataFrame:
                 "138875005", "311793000", "116680003"]
     })
 
-    return edges
+
+@pytest.fixture
+def df_desc() -> pd.DataFrame:
+    return pd.DataFrame({
+        "conceptId": ["1163440003", "129574000", "311796008", "311792005", "311793000",
+                      "116680003", "900000000000441003", "363698007", "116676008", "255234002",
+                      "263502005", "74281007", "123037004", "55641003", "55470003", "58148009",
+                      "6975006", "387713003", "71388002", "424124008", "362981000", "404684003",
+                      "138875005", "test", "1163440003", "116676008", "255234002", "74281007",
+                      "74281007", "123037004", "55641003", "55470003", "58148009", "6975006",
+                      "387713003", "387713003", "387713003", "1163440003", "129574000",
+                      "311796008", "311792005", "311793000", "116680003", "363698007", "116676008",
+                      "263502005", "74281007", "123037004", "55641003", "58148009", "6975006",
+                      "387713003", "71388002", "424124008", "362981000", "404684003", "138875005",
+                      "1163440003", "74281007", "74281007", "74281007", "6975006", "6975006",
+                      "71388002"],
+        "fsn": ["Postoperative acute myocardial infarction (disorder)",
+                "Postoperative myocardial infarction (disorder)",
+                "Postoperative subendocardial myocardial infarction (disorder)",
+                "Postoperative transmural myocardial infarction of anterior wall (disorder)",
+                "Postoperative transmural myocardial infarction of inferior wall (disorder)",
+                "Is a (attribute)", "SNOMED CT Model Component (metadata)",
+                "Finding site (attribute)", "Associated morphology (attribute)",
+                "After (attribute)", "Clinical course (attribute)",
+                "Myocardium structure (body structure)", "Body structure (body structure)",
+                "Infarct (morphologic abnormality)", "Acute infarct (morphologic abnormality)",
+                "Structure of subendocardial myocardium (body structure)",
+                "Structure of anterior myocardium (body structure)",
+                "Surgical procedure (procedure)", "Procedure (procedure)",
+                "Sudden onset AND/OR short duration (qualifier value)",
+                "Qualifier value (qualifier value)", "Clinical finding (finding)",
+                "SNOMED CT Concept (SNOMED RT+CTV3)", "Test (test)",
+                "Postoperative acute myocardial infarction (disorder)",
+                "Associated morphology (attribute)", "After (attribute)",
+                "Myocardium structure (body structure)", "Myocardium structure (body structure)",
+                "Body structure (body structure)", "Infarct (morphologic abnormality)",
+                "Acute infarct (morphologic abnormality)",
+                "Structure of subendocardial myocardium (body structure)",
+                "Structure of anterior myocardium (body structure)",
+                "Surgical procedure (procedure)", "Surgical procedure (procedure)",
+                "Surgical procedure (procedure)",
+                "Postoperative acute myocardial infarction (disorder)",
+                "Postoperative myocardial infarction (disorder)",
+                "Postoperative subendocardial myocardial infarction (disorder)",
+                "Postoperative transmural myocardial infarction of anterior wall (disorder)",
+                "Postoperative transmural myocardial infarction of inferior wall (disorder)",
+                "Is a (attribute)", "Finding site (attribute)",
+                "Associated morphology (attribute)", "Clinical course (attribute)",
+                "Myocardium structure (body structure)", "Body structure (body structure)",
+                "Infarct (morphologic abnormality)",
+                "Structure of subendocardial myocardium (body structure)",
+                "Structure of anterior myocardium (body structure)",
+                "Surgical procedure (procedure)", "Procedure (procedure)",
+                "Sudden onset AND/OR short duration (qualifier value)",
+                "Qualifier value (qualifier value)", "Clinical finding (finding)",
+                "SNOMED CT Concept (SNOMED RT+CTV3)",
+                "Postoperative acute myocardial infarction (disorder)",
+                "Myocardium structure (body structure)", "Myocardium structure (body structure)",
+                "Myocardium structure (body structure)",
+                "Structure of anterior myocardium (body structure)",
+                "Structure of anterior myocardium (body structure)", "Procedure (procedure)"],
+        "term": ["Postoperative acute myocardial Infarction",
+                 "Postoperative myocardial infarction",
+                 "Postoperative subendocardial myocardial infarction",
+                 "Postoperative transmural myocardial infarction of anterior wall",
+                 "Postoperative transmural myocardial infarction of inferior wall", "Is a",
+                 "SNOMED CT Model Component", "Finding site", "Associated morphology", "After",
+                 "Clinical course", "Myocardium structure", "Body structure", "Infarct",
+                 "Acute infarct", "Structure of subendocardial myocardium",
+                 "Structure of anterior myocardium", "Surgical procedure", "Procedure",
+                 "Sudden onset AND/OR short duration", "Qualifier value", "Clinical finding",
+                 "SNOMED CT concept", "Test",
+                 "Acute myocardial infarction following operative procedure", "Morphology",
+                 "Following", "Cardiac muscle", "Myocardium", "Body structures", "Infarction",
+                 "Recent infarct", "Subendocardial myocardium", "Anterior myocardium", "Operation",
+                 "Operative procedure", "Surgery", "infarctus du myocarde aigu postoperatoire",
+                 "infarctus myocardique postoperatoire",
+                 "infarctus myocardique sous-endocardique postoperatoire",
+                 "infarctus myocardique transmural anterieur postoperatoire",
+                 "infarctus myocardique transmural inferieur postoperatoire", "est un(e)",
+                 "localisation de constatation", "morphologie associee", "evolution clinique",
+                 "myocarde", "structure corporelle", "infarctus", "myocarde sous-endocardique",
+                 "myocarde anterieur", "intervention chirurgicale", "procedure",
+                 "apparition soudaine ou de courte duree", "valeur de l'attribut",
+                 "constatation clinique", "concept SNOMED CT",
+                 "IDM (infarctus du myocarde) aigu postoperatoire", "myocardium",
+                 "structure du myocarde", "structure myocardique", "paroi anterieure du myocarde",
+                 "structure du myocarde anterieur", "intervention"],
+        "acceptability": ["PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "PREF",
+                          "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "PREF",
+                          "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "ACCEPT", "ACCEPT",
+                          "ACCEPT", "ACCEPT", "ACCEPT", "ACCEPT", "ACCEPT", "ACCEPT", "ACCEPT",
+                          "ACCEPT", "ACCEPT", "ACCEPT", "ACCEPT", "PREF", "PREF", "PREF", "PREF",
+                          "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "PREF",
+                          "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "PREF", "ACCEPT",
+                          "ACCEPT", "ACCEPT", "ACCEPT", "ACCEPT", "ACCEPT", "ACCEPT"],
+        "lang": ["en", "en", "en", "en", "en", "en", "en", "en", "en", "en", "en", "en", "en",
+                 "en", "en", "en", "en", "en", "en", "en", "en", "en", "en", "en", "en", "en",
+                 "en", "en", "en", "en", "en", "en", "en", "en", "en", "en", "en", "fr", "fr",
+                 "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr",
+                 "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr", "fr"]
+    })
 
 
 @pytest.fixture
@@ -479,6 +580,7 @@ def sub_sct() -> SnomedGraph:
                      "", "", ["intervention"], "", ""]
     })
     nodes.set_index("conceptId", inplace=True)
+
     rel = pd.DataFrame({
         "active": ["1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1",
                    "1", "1", "1", "1", "1"],
@@ -504,3 +606,32 @@ def sub_sct() -> SnomedGraph:
     g.add_nodes_from((id, dict(row)) for id, row in nodes.iterrows())
 
     return SnomedGraph(g, lang="fr")
+
+
+@pytest.fixture
+def search() -> List[str]:
+    return ["1163440003", "129574000", "311792005", "311793000", "311796008", "58148009",
+            "6975006", "74281007"]
+
+
+@pytest.fixture
+def search_syn() -> List[str]:
+    return ["1163440003", "58148009", "6975006", "74281007"]
+
+
+@pytest.fixture
+def search_pt() -> List[str]:
+    return ["1163440003", "129574000", "311792005", "311793000", "311796008", "58148009",
+            "6975006", "74281007"]
+
+
+@pytest.fixture
+def search_fsn() -> List[str]:
+    return ["1163440003", "129574000", "311792005", "311793000", "311796008"]
+
+
+@pytest.fixture
+def search_absent() -> List[str]:
+    return ["116676008", "116680003", "123037004", "138875005", "255234002", "263502005",
+            "362981000", "363698007", "387713003", "404684003", "424124008", "55470003",
+            "55641003", "71388002", "74281007", "900000000000441003", "test"]
